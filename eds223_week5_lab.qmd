@@ -1,0 +1,163 @@
+---
+title: "eds223-week5-lab1"
+format: html
+editor_options:
+  chunk_output_type: console
+---
+
+```{r}
+library(sf) #' [vector handling]
+library(terra) #' [raster handling]
+library(tidyverse)
+library(tmap) #' [map making]
+library(spData) #' [spatial data]
+library(spDataLarge) #'[ spatial data]
+library(viridisLite)
+library(ggplot2)
+```
+
+```{r}
+#'[raster data]
+elevation <- rast(system.file("raster/srtm.tif", package =
+                                "spDataLarge"))
+#'[vector data]
+boundary <- read_sf(system.file("vector/zion.gpkg",package = 
+                                  "spDataLarge"))
+```
+
+```{r}
+#'[check if crs matches]
+crs(elevation) == crs(boundary)
+```
+
+```{r}
+if(crs(elevation) == crs(boundary)) { 
+  print("CRS match!")
+}else{
+  warning("update CRS to match") 
+  boundary <- st_transform(boundary, st_crs(elevation)) #'[we are using sf function to pull crs from spatraster and it works!  even though elevation is not vector/sf]
+  }
+```
+
+```{r}
+tm_shape(elevation) +
+  tm_raster(title = "Elevation (meters)") +
+  tm_shape(boundary) +
+  tm_borders(col = "black",
+             lwd = 2) +
+  tm_layout(legend.outside = TRUE)
+```
+
+
+```{r}
+#'[crop raster (elevation) to extent of vector object (boundary)]
+elevation_cropped <- terra::crop(elevation, boundary)
+
+tm_shape(elevation_cropped) +
+  tm_raster(title = "Elevation (meters)") +
+  tm_shape(boundary) +
+  tm_borders(col = "black",
+             lwd = 2) +
+  tm_layout(legend.outside = TRUE)
+```
+
+```{r}
+#'[mask raster based on vector object]
+#'[convert cells outside of the park to NA]
+
+elevation_masked <- terra::mask(elevation_cropped, boundary)
+
+#'[we no longer see the raster outside of the boundary]
+
+tm_shape(elevation_masked) +
+  tm_raster(title = "Elevation (meters)") +
+  tm_shape(boundary) +
+  tm_borders(col = "black",
+             lwd = 2) +
+  tm_layout(legend.outside = TRUE)
+```
+
+```{r}
+#'[mask raster based on vector object]
+#'[convert cells outside of park to NA]
+
+elevation_inverse_mask <- terra::mask(elevation_cropped,boundary, inverse = TRUE) 
+
+tm_shape(elevation_inverse_mask) +
+  tm_raster(title = "Elevation (meters)") +
+  tm_shape(boundary) +
+  tm_borders(col = "black",
+             lwd = 2) +
+  tm_layout(legend.outside = TRUE)
+```
+
+```{r}
+#'[masking to cells inside of park]
+elevation_inside <- mask(elevation_cropped, boundary) 
+
+#'[create mask based on value of cells]
+elevation_mask <- elevation_inside #'[basically making copy of previously made mask]
+
+elevation_mask[elevation_mask < 2000] <- NA
+
+tm_shape(elevation_mask) +
+  tm_raster() +
+  tm_layout(legend.outside = TRUE)
+
+#'[making remaining cells into polgygon 
+
+elevation_mask_poly <- terra::as.polygons(elevation_mask) %>%
+  st_as_sf() 
+ 
+tm_shape(elevation_mask_poly) +
+  tm_polygons() +
+  tm_layout(legend.outside = TRUE)
+
+```
+
+```{r}
+data("zion_points", package = "spDataLarge")
+crs(zion_points) == crs(elevation) 
+
+zion_points <- st_transform(zion_points, crs = st_crs(elevation))
+
+
+tm_shape(elevation) +
+  tm_raster() + 
+  tm_shape(boundary) +
+  tm_borders() +
+  tm_shape(zion_points) +
+  tm_symbols()
+
+pts_elevation <- terra::extract(elevation,zion_points)
+zion_points <- cbind(zion_points, pts_elevation)
+```
+
+```{r}
+zion_transect <- cbind(c(-133.2, -112.9),
+                       c(37.45, 37.2)) %>%
+  st_linestring() %>%
+  st_sfc(crs = crs(elevation)) %>%
+  st_sf(geometry = .)
+
+
+zion_transect$id = 1:nrow(zion_transect)
+zion_transect <- st_segmentize(zion_transect, dfMaxLength = 250)
+zion_transect <- st_cast(zion_transect, "POINT")
+
+zion_transect <- zion_transect %>%
+  group_by(id) %>%
+  mutate(dist = st_distance(geometry)[,1])
+
+transect <- terra::extract(elevation, zion_transect)
+zion_transect <- cbind(zion_transect, transect)
+
+zion_transect <- zion_transect %>%
+  filtr
+
+ggplot(zion_transect, aes(x = ID, y = elevation)) +
+  geom_point()
+```
+
+
+
